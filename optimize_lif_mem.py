@@ -121,7 +121,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     if disableTbar is False:
         print(f'chi2r={chi2r:.3f}, S={S:.2f}, w.sum()={wTraj[iBest].sum():.3f}, G={G:.2f}')
     
-    return gBest, iBest, chi2r, S, gGood, iGood, saveDirPath    
+    return gBest, iBest, chi2r, S, gGood, iGood, saveDirPath
 
 def residuals(weights, pExp, errExp, rdaEns, sigma, bin_edges):
     pModel = gaussHistogram2D(rdaEns, weights, sigma, bin_edges)
@@ -174,15 +174,13 @@ def minimizeMH(residualsFn, nSteps, wseed):
     nMoves = 1
     w_step = 1.1
     nBuf = 100
-    nConv = 2000 #rescramble
+    nConv = 2000 #rescramble if the solution does not improve nConv iterations
     convTol = 1E-8
-    
-    rng = default_rng()
     
     assert nConv >= nBuf
     
+    rng = default_rng()
     fG = lambda resi: np.square(resi).sum()
-    
     resi = residualsFn(wseed)
     wTraj = np.empty((nSteps,wseed.shape[0]))
     resiTraj = np.empty((nSteps,resi.size))
@@ -192,7 +190,7 @@ def minimizeMH(residualsFn, nSteps, wseed):
     #sample solutions
     w = np.copy(wseed)
     accept_ratio = -1.0
-    Gprev = np.square(resi).sum() / resi.size
+    Gprev = fG(resi)
     iAcc = 0
     for i in range(nSteps):
         #adjust sampling
@@ -216,7 +214,6 @@ def minimizeMH(residualsFn, nSteps, wseed):
         w_old = np.copy(w)
         for iRS in range(nMoves):
             w[rng.integers(0,w.shape[0])] *= rng.uniform(1.0/w_step,w_step)
-        #w /= w.sum()
         
         accept = False
         #rescramble if the solution does not improve
@@ -229,11 +226,10 @@ def minimizeMH(residualsFn, nSteps, wseed):
                 w /= w.sum()
                 Gprev = np.inf
         
+        #test new weights
         resi = residualsFn(w)
         G = fG(resi)
         gTraj[i]=G
-        
-        #test new weights
         if G<=Gprev:
             accept = True
         else:
@@ -311,12 +307,13 @@ def loadExpData(pExpPathMask, rda_min, rda_max, pairsSorted):
     return edges, pExp, err
 
 def plot_pRda(path, rda, model, exp, err, model_initial, pRmp):
-    modScale = (exp*model/np.square(err)).sum() / (np.square(model/err).sum()+np.finfo(float).eps) 
+    modScale = (exp*model/np.square(err)).sum() / (np.square(model/err).sum()+np.finfo(float).eps)
+    initScale = (exp*model_initial/np.square(err)).sum() / (np.square(model_initial/err).sum()+np.finfo(float).eps)
     fig, ax = plt.subplots()
     ax.errorbar(rda,exp,yerr=err, color='black', label='experiment', fmt='o', markersize=3)
     ax.plot(rda,model*modScale, 'bo--', label='MD+weights', markersize=3, linewidth=1)
     ax.plot(rda, pRmp*modScale, 'go--', label='p(Rmp), MD+reweigting', markersize=3, linewidth=1)
-    ax.plot(rda, model_initial*modScale, 'ro--', label='MD initial', markersize=3, linewidth=1)
+    ax.plot(rda, model_initial*initScale, 'ro--', label='MD initial', markersize=3, linewidth=1)
     ax.set_ylim(0.0, exp.max()*3.0)
     ax.set_xlabel('Rda / A')
     ax.set_ylabel('p(Rda)')
@@ -346,12 +343,11 @@ def mainWrap(saveDirPath, **kargs):
     try:
         return main(saveDirPath=saveDirPath, **kargs)
     except:
-        return -1, -1, -1, -1, method
+        return -1, -1, -1, -1, -1, -1, saveDirPath
 
 if __name__ == '__main__':
     if len(sys.argv)<4:
         print('Usage:  \t./optimize_lif_mem.py <nSteps> <outDir> <theta>\nExample:\t./optimize_lif_mem.py 50000 results 0.15')
-        #
         sys.exit()
     
     nSteps=int(sys.argv[1])
@@ -380,8 +376,7 @@ if __name__ == '__main__':
             tbar.update()
             tbar.set_description(f'{r[-1]}, G={r[0]:.2f}')
     
-    formats=[float]*6+['U128']
-    restab=np.core.records.fromrecords(results,formats=formats)
+    restab=np.core.records.fromrecords(results,formats=[float]*6+['U128'])
     header='\t'.join(header)
     np.savetxt(f'{saveDirPath}_summary.dat',restab, fmt='%s',delimiter='\t',header=header, comments='')
     print(header)
