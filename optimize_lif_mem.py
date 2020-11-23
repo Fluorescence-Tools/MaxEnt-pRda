@@ -2,20 +2,20 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
-import numpy as np
-from numpy.random import default_rng
-from scipy.stats import norm
-from scipy.interpolate import interp1d
-from scipy.special import erf
-import matplotlib.pyplot as plt
 import collections
-import lmfit
-from scipy.optimize import basinhopping
 from functools import partial
-from numpy.lib import recfunctions as rfn
 from glob import glob
 from multiprocessing import Pool, current_process, cpu_count
 import time
+import numpy as np
+from numpy.random import default_rng
+from numpy.lib import recfunctions as rfn
+from scipy.stats import norm
+from scipy.interpolate import interp1d
+from scipy.special import erf
+from scipy.optimize import basinhopping
+import matplotlib.pyplot as plt
+import lmfit
 from tqdm import trange, tqdm
 #np.seterr(all='raise')
 
@@ -46,7 +46,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     rdaEns = np.nan_to_num(rdaEns, nan=-1.0)
     bin_edges, pExp, errExp = loadExpData(expPathMask, rda_min, rda_max, pairsStr)
     errExp = np.clip(errExp,minErrFrac/errExp.shape[0],None)
-    
+       
     #setup minimazion logging
     resiPart = partial(memResi, pExp=pExp, errExp=errExp, 
                     rdaEns=rdaEns, sigma=sigma, 
@@ -92,10 +92,12 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     gGood = gTraj[iGood]
     
     #save results
+    G, chi2r, S, resW = weigths2GTerms(wTraj[iBest], w0, pExp, errExp, rdaEns,  sigma, bin_edges)
+    summary=f'chi2r={chi2r:.3f}, S={S:.2f}, w.sum()={wTraj[iBest].sum():.3f}, G={G:.2f}, seed={seed}, theta={theta0}, nSteps={nSteps}, {method}'
     if not os.path.exists(saveDirPath): os.mkdir(saveDirPath)
     np.savetxt(saveDirPath+'/residuals_traj.dat', resiTraj[::saveStride], fmt='%.6e',delimiter='\t')
     np.savetxt(saveDirPath+'/weights_traj.dat',wTraj[::saveStride], fmt='%.6e')
-    np.savetxt(saveDirPath+'/weights_final.dat', wTraj[iBest], fmt='%.6e')
+    np.savetxt(saveDirPath+'/weights_final.dat', wTraj[iBest], fmt='%.6e',header=summary)
     
     edges_full = np.linspace(0.0,200.0,201)
     pModel = gaussHistogram2D(rdaEns, wTraj[iBest], sigma, edges_full)
@@ -103,6 +105,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
         pModData = np.column_stack(((edges_full[:-1]+edges_full[1:])*0.5,pModel[:,ip]))
         np.savetxt(saveDirPath+f'/pRda_model_{pair}.dat', pModData, fmt=['%.2f','%.5e'], header='Rda\tp(Rda)',delimiter='\t',comments='')
     
+    plot_energies(saveDirPath+f'/energies_{method}', resiTraj, theta0)
     gCur = gTraj[0]*2.0
     for i in range(iBest,iBest+1,100):
         if gTraj[i] >= gCur:
@@ -111,15 +114,16 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
         w = wTraj[i]
         pModel = gaussHistogram2D(rdaEns, w, sigma, bin_edges)
         for ip, pair in enumerate(pairsStr):
-            pModIni=gaussHistogram(np.nan_to_num(rdaModel[pair],nan=-1.0), w0, sigma, bin_edges)
+            pModIni=gaussHistogram2D(rdaEns[:,ip:ip+1], w0, sigma, bin_edges)[:,0]            
             pRmp = np.histogram(np.nan_to_num(rmpModel[pair],nan=-1.0),bins=bin_edges, weights=w)[0]
             bin_c = (bin_edges[:-1]+bin_edges[1:])*0.5
             plot_pRda(saveDirPath+f'/{pair}_{i:05}', bin_c, pModel[:,ip], pExp[:,ip], errExp[:,ip], pModIni, pRmp)
        
-    G, chi2r, S, resW = weigths2GTerms(wTraj[iBest], w0, pExp, errExp, rdaEns,  sigma, bin_edges)
-    assert np.all(np.isclose([G, chi2r, S, resW], resi2GTerms(resiTraj[iBest])))
+    
     if disableTbar is False:
-        print(f'chi2r={chi2r:.3f}, S={S:.2f}, w.sum()={wTraj[iBest].sum():.3f}, G={G:.2f}')
+        print(summary)
+    if theta0>0.0:
+        assert np.all(np.isclose([G, chi2r, S, resW], resi2GTerms(resiTraj[iBest],theta0)))
     
     return gBest, iBest, chi2r, S, gGood, iGood, saveDirPath
 
@@ -249,10 +253,13 @@ def minimizeMH(residualsFn, nSteps, wseed):
         
     return wTraj[:iAcc], resiTraj[:iAcc]
   
-def gaussHistrogram2DInterp(rdaEns, weights, sigma, bin_edges):
-    #calculate gaussian-smoothed p(Rda). Use interpolated normal distribution to improve performance
-    r =  np.linspace(-7.0*sigma, 7.0*sigma, 2001)
-    cdfInt = interp1d(r, norm.cdf(r, scale=sigma), kind='linear', fill_value=(0.0,1.0), bounds_error=False, assume_sorted=True)
+def gaussHistogram2D(rdaEns, weights, sigma, bin_edges, interp=False):
+    #calculate gaussian-smoothed p(Rda).
+    cdfInt = lambda x: norm.cdf(x,scale=sigma)
+    if interp:
+        #Use interpolated normal distribution to improve performance
+        r =  np.linspace(-7.0*sigma, 7.0*sigma, 2001)
+        cdfInt = interp1d(r, norm.cdf(r, scale=sigma), kind='linear', fill_value=(0.0,1.0), bounds_error=False, assume_sorted=True)
 
     numBins = bin_edges.shape[0]-1
     numPairs = rdaEns.shape[1]
@@ -262,19 +269,6 @@ def gaussHistrogram2DInterp(rdaEns, weights, sigma, bin_edges):
         cdf = cdfInt(dr)
         hist2D[:,ip] = ((cdf[:,1:]-cdf[:,:-1])*np.atleast_2d(weights).T).sum(axis=0)
     return hist2D
-gaussHistogram2D=gaussHistrogram2DInterp
-
-def gaussHistogramVect(values, weights, sigma, edges):
-    assert len(values) == len(weights)
-    e2d = np.atleast_2d(edges).T
-    e2d = np.tile(e2d,(1,len(values)))
-    n = norm.cdf(e2d,loc=values,scale=sigma)
-    t = n[1:,]-n[:-1,:]
-    s = t * np.atleast_2d(weights)
-    hist = s.sum(axis=1)
-    #assert np.all(np.isclose(hist, gaussHistogramLoop(values, weights, sigma, edges)))
-    return hist
-gaussHistogram=gaussHistogramVect
 
 def loadExpData(pExpPathMask, rda_min, rda_max, pairsSorted):
     pExpPathList = glob(pExpPathMask)
@@ -323,33 +317,55 @@ def plot_pRda(path, rda, model, exp, err, model_initial, pRmp):
     fig.tight_layout()
     fig.savefig(path+'.png',dpi=300)
     plt.close(fig)
-
+    
+def plot_energies(path, resiTraj, theta):
+    y = np.zeros((resiTraj.shape[0],4))
+    for i, resi in enumerate(resiTraj): 
+        y[i] = resi2GTerms(resi, theta)
+    G, chi2r, S, resW = y.T
+    
+    fig, ax = plt.subplots()
+    x = np.arange(resiTraj.shape[0])
+    ax.plot(x, G , 'r-', label='G', linewidth=1)
+    ax.plot(x, chi2r , 'g-', label='chi2', linewidth=1)
+    ax.plot(x, S, 'b-', label='S', linewidth=1)
+    ax.set_ylim(0.0, chi2r[0]*1.1)
+    ax.set_xlim(0, resiTraj.shape[0])
+    ax.set_xlabel('# iteration')
+    ax.set_ylabel('G, chi2r, S')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=3, prop={'size': 8})
+    
+    fig.tight_layout()
+    fig.savefig(path+'.png',dpi=300)
+    plt.close(fig)
+    
 def weigths2GTerms(w, w0, pExp, errExp, rdaEns,  sigma, bin_edges):
-    chi2 = np.square(residuals(w, pExp, errExp, rdaEns,  sigma, bin_edges)).sum()
-    chi2r = chi2 / pExp.size
+    chi2r = np.square(residuals(w, pExp, errExp, rdaEns,  sigma, bin_edges)).mean()
     S = np.sum(w*np.log(w/w0+1E-12))
     resW = (w.sum()-1.0)/0.1
     G = chi2r*0.5 + theta0*(S+1.0) + resW**2
     return G, chi2r, S, resW
 
-def resi2GTerms(resi):
+def resi2GTerms(resi, theta0):
     chi2r = np.square(resi[:-2]).sum()*2.0
+    theta0 += np.finfo(float).eps
     S = resi[-2]**2/theta0-1
     resW = resi[-1]
     G = np.square(resi).sum()
     return G, chi2r, S, resW
 
-def mainWrap(saveDirPath, **kargs):
+def mainWrap(d):
     try:
-        return main(saveDirPath=saveDirPath, **kargs)
+        return main(**d)
     except:
-        return -1, -1, -1, -1, -1, -1, saveDirPath
+        return -1, -1, -1, -1, -1, -1, d['saveDirPath']
 
 if __name__ == '__main__':
     if len(sys.argv)<4:
         print('Usage:  \t./optimize_lif_mem.py <nSteps> <outDir> <theta>\nExample:\t./optimize_lif_mem.py 50000 results 0.15')
         sys.exit()
     
+    serial = True
     nSteps=int(sys.argv[1])
     saveDirPath=sys.argv[2]
     theta0=float(sys.argv[3])
@@ -357,28 +373,33 @@ if __name__ == '__main__':
     if len(sys.argv) > 4:
         seed = sys.argv[4]
 
-    methods=['BH-SLSQP', 'slsqp', 'basinhopping', 'trust-constr', 'cg', 'ampgo', 'BH-trust-constr',  'dual_annealing', 'MH', 'BH-L-BFGS-B']
-    #'differential_evolution', 'least_squares', 'shgo'
+    methods=['BH-SLSQP', 'slsqp', 'basinhopping', 'trust-constr', 'cg', 'ampgo',  'dual_annealing', 'MH']
+    #'differential_evolution', 'least_squares', 'shgo', 'BH-trust-constr', 'BH-L-BFGS-B'
     
     header = ['gBest', 'iBest', 'chi2r', 'S', 'gGood', 'iGood', 'saveDirPath']
     results = []
     
-    #r = main(nSteps, saveDirPath, theta0, seed, m)
-    #results.append(r)
-    
-    partMain = partial(mainWrap, nSteps=nSteps, theta0=theta0, seed=False, method=methods[0])
-    pool = Pool()
-    Nseeds = cpu_count()
-    savePathList = [f'{saveDirPath}_{i}' for i in range(Nseeds)]
-    with trange(Nseeds) as tbar:
-        for r in pool.imap_unordered(partMain, savePathList):
-            results.append(r)
-            tbar.update()
-            tbar.set_description(f'{r[-1]}, G={r[0]:.2f}')
+    if serial:
+        r = main(nSteps, saveDirPath, theta0, seed, methods[0])
+        results.append(r)
+    else:
+        numRuns=len(methods)
+        pool = Pool()
+        dictLst = []
+        for i in range(numRuns):
+            d={'nSteps':nSteps, 'theta0':theta0, 'seed':seed, 
+               'method':methods[i], 'saveDirPath':f'{saveDirPath}_{i}' }
+            dictLst.append(d)
+        with trange(numRuns) as tbar:
+            for r in pool.imap_unordered(mainWrap, dictLst):
+                results.append(r)
+                tbar.update()
+                tbar.set_description(f'{r[-1]}, G={r[0]:.2f}')
     
     restab=np.core.records.fromrecords(results,formats=[float]*6+['U128'])
     header='\t'.join(header)
     np.savetxt(f'{saveDirPath}_summary.dat',restab, fmt='%s',delimiter='\t',header=header, comments='')
     print(header)
-    for r in restab: print(f'{r[0]:.2f}\t{r[1]:.0f}\t{r[2]:.2f}\t{r[3]:.2f}\t{r[4]:.2f}\t{r[5]:.0f}\t{r[6]}')
+    for r in restab: 
+        print(f'{r[0]:.2f}\t{r[1]:.0f}\t{r[2]:.2f}\t{r[3]:.2f}\t{r[4]:.2f}\t{r[5]:.0f}\t{r[6]}')
     
