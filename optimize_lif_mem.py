@@ -116,8 +116,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
         for ip, pair in enumerate(pairsStr):
             pModIni=gaussHistogram2D(rdaEns[:,ip:ip+1], w0, sigma, bin_edges)[:,0]            
             pRmp = np.histogram(np.nan_to_num(rmpModel[pair],nan=-1.0),bins=bin_edges, weights=w)[0]
-            bin_c = (bin_edges[:-1]+bin_edges[1:])*0.5
-            plot_pRda(saveDirPath+f'/{pair}_{i:05}', bin_c, pModel[:,ip], pExp[:,ip], errExp[:,ip], pModIni, pRmp)
+            plot_pRda(saveDirPath+f'/{pair}_{i:05}', bin_edges, pModel[:,ip], pExp[:,ip], errExp[:,ip], pModIni, pRmp)
        
     
     if disableTbar is False:
@@ -300,17 +299,26 @@ def loadExpData(pExpPathMask, rda_min, rda_max, pairsSorted):
     edges = np.append(bins_left[binStart:binEnd],bins_right[binEnd-1])
     return edges, pExp, err
 
-def plot_pRda(path, rda, model, exp, err, model_initial, pRmp):
+def plot_pRda(path, rda_edges, model, exp, err, model_initial, pRmp):
     modScale = (exp*model/np.square(err)).sum() / (np.square(model/err).sum()+np.finfo(float).eps)
     initScale = (exp*model_initial/np.square(err)).sum() / (np.square(model_initial/err).sum()+np.finfo(float).eps)
+    
+    rda = (rda_edges[:-1]+rda_edges[1:])*0.5
+    bin_width = rda_edges[1:] - rda_edges[:-1]
+    
     fig, ax = plt.subplots()
-    ax.errorbar(rda,exp,yerr=err, color='black', label='experiment', fmt='o', markersize=3)
-    ax.plot(rda,model*modScale, 'bo--', label='MD+weights', markersize=3, linewidth=1)
-    ax.plot(rda, pRmp*modScale, 'go--', label='p(Rmp), MD+reweigting', markersize=3, linewidth=1)
-    ax.plot(rda, model_initial*initScale, 'ro--', label='MD initial', markersize=3, linewidth=1)
-    ax.set_ylim(0.0, exp.max()*1.3)
+    ax.errorbar(rda,exp/bin_width,yerr=err/bin_width, color='black', label='experiment', fmt='o', markersize=2, elinewidth=1.0)
+    ax.plot(rda,model*modScale/bin_width, 'bo--', label='MD+weights', markersize=2, linewidth=1)
+    ax.plot(rda, model_initial*initScale/bin_width, 'ro--', label='MD initial', markersize=2, linewidth=1)
+    
+    axR = ax.twinx()
+    axR.plot(rda, pRmp*modScale/bin_width, 'go--', label='p(Rmp), MD+reweigting', markersize=2, linewidth=1)
+    axR.set_ylabel('p(Rmp) per A / A^-1', color='g')
+    axR.set_ylim(0.0, None)
+    
+    ax.set_ylim(0.0, None)
     ax.set_xlabel('Rda / A')
-    ax.set_ylabel('p(Rda)')
+    ax.set_ylabel('p(Rda) per A / A^-1')
     chi2r=np.square((model*modScale-exp)/err).mean()
     ax.set_title('FRET pair: ' + path.split('/')[-1] + f', chi2r = {chi2r:.1f}')
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=4, prop={'size': 8})
