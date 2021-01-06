@@ -23,10 +23,10 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     #input parameters
     sigma = 6.0 #Angstrom
     rda_min = 0.0
-    rda_max = 120.0
+    rda_max = 200.0
     saveStride = 100
     minErrFrac = 0.001 #per bin
-    expPathMask = 'Lif_data/prda_20201102_exp/*.txt'
+    expPathMask = 'Lif_data/ucfret_20201210/*.txt'
     rdaModel = np.genfromtxt('Lif_data/545_pdbs_Rda.dat',names=True,delimiter='\t',deletechars="")
     rmpModel = np.genfromtxt('Lif_data/545_pdbs_Rmp.dat',names=True,delimiter='\t',deletechars="")
     w0 = np.loadtxt('Lif_data/545_pdbs_initial_weights.dat',delimiter=' ',usecols=[1]) #weights
@@ -308,7 +308,7 @@ def plot_pRda(path, rda, model, exp, err, model_initial, pRmp):
     ax.plot(rda,model*modScale, 'bo--', label='MD+weights', markersize=3, linewidth=1)
     ax.plot(rda, pRmp*modScale, 'go--', label='p(Rmp), MD+reweigting', markersize=3, linewidth=1)
     ax.plot(rda, model_initial*initScale, 'ro--', label='MD initial', markersize=3, linewidth=1)
-    ax.set_ylim(0.0, exp.max()*3.0)
+    ax.set_ylim(0.0, exp.max()*1.3)
     ax.set_xlabel('Rda / A')
     ax.set_ylabel('p(Rda)')
     chi2r=np.square((model*modScale-exp)/err).mean()
@@ -380,7 +380,7 @@ if __name__ == '__main__':
     results = []
     
     if serial:
-        r = main(nSteps, saveDirPath, theta0, seed, methods[0])
+        r = main(nSteps, saveDirPath, theta0, seed, methods[1])
         results.append(r)
     else:
         numRuns=len(methods)
