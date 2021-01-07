@@ -27,15 +27,20 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     saveStride = 100
     minErrFrac = 0.001 #per bin
     expPathMask = 'Lif_data/ucfret_20201210/*.txt'
-    rdaModel = np.genfromtxt('Lif_data/545_pdbs_Rda.dat',names=True,delimiter='\t',deletechars="")
-    rmpModel = np.genfromtxt('Lif_data/545_pdbs_Rmp.dat',names=True,delimiter='\t',deletechars="")
-    w0 = np.loadtxt('Lif_data/545_pdbs_initial_weights.dat',delimiter=' ',usecols=[1]) #weights
+    mdDataDir = 'Lif_data/MD_Neha_pre2021'
+    
+    #load MD data
+    rdaModel = np.genfromtxt(mdDataDir+'/545_pdbs_Rda.dat',names=True,delimiter='\t',deletechars="")
+    rmpModel = np.genfromtxt(mdDataDir+'/545_pdbs_Rmp.dat',names=True,delimiter='\t',deletechars="")
+    w0 = np.loadtxt(mdDataDir+'/545_pdbs_MD_weights.dat',delimiter=' ',usecols=[1]) #reference weights
     w0 /= w0.sum()
-    wseed = np.copy(w0)
-    if seed == False:
+    wseed = None
+    if seed == 'random':
         wseed = default_rng().uniform(0,1,w0.shape[0])
         wseed /= wseed.sum()
-    elif seed is not None:
+    elif seed == 'reference':
+        wseed = np.copy(w0)
+    else:
         wseed = np.loadtxt(seed+'/weights_final.dat',usecols=[0])
         assert wseed.shape == w0.shape
     assert w0.shape[0] == rdaModel.shape[0]
@@ -321,8 +326,9 @@ def plot_pRda(path, rda_edges, model, exp, err, model_initial, pRmp):
     ax.set_ylabel('p(Rda) per A / A^-1')
     chi2r=np.square((model*modScale-exp)/err).mean()
     ax.set_title('FRET pair: ' + path.split('/')[-1] + f', chi2r = {chi2r:.1f}')
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=4, prop={'size': 8})
+    fig.legend(loc='upper center', ncol=4, prop={'size': 8}, bbox_to_anchor=(0.5, 0.06))
     fig.tight_layout()
+    fig.subplots_adjust(bottom=0.15)
     fig.savefig(path+'.png',dpi=300)
     plt.close(fig)
     
@@ -377,28 +383,28 @@ if __name__ == '__main__':
     nSteps=int(sys.argv[1])
     saveDirPath=sys.argv[2]
     theta0=float(sys.argv[3])
-    seed = None
+    seed = 'reference' #'random', 'reference', '<some_path>'
     if len(sys.argv) > 4:
         seed = sys.argv[4]
 
-    methods=['BH-SLSQP', 'slsqp', 'basinhopping', 'trust-constr', 'cg', 'ampgo',  'dual_annealing', 'MH']
+    methods=['slsqp', 'BH-SLSQP', 'basinhopping', 'trust-constr', 'cg', 'ampgo',  'dual_annealing', 'MH']
     #'differential_evolution', 'least_squares', 'shgo', 'BH-trust-constr', 'BH-L-BFGS-B'
     
     header = ['gBest', 'iBest', 'chi2r', 'S', 'gGood', 'iGood', 'saveDirPath']
     results = []
     
     if serial:
-        r = main(nSteps, saveDirPath, theta0, seed, methods[1])
+        r = main(nSteps, saveDirPath, theta0, seed, methods[0])
         results.append(r)
     else:
-        numRuns=len(methods)
         pool = Pool()
         dictLst = []
-        for i in range(numRuns):
-            d={'nSteps':nSteps, 'theta0':theta0, 'seed':seed, 
-               'method':methods[i], 'saveDirPath':f'{saveDirPath}_{i}' }
-            dictLst.append(d)
-        with trange(numRuns) as tbar:
+        for i in range(len(methods)):
+            for cur_seed in ['random', 'reference']:
+                d={'nSteps':nSteps, 'theta0':theta0, 'seed':cur_seed, 
+                'method':methods[i], 'saveDirPath':f'{saveDirPath}_{i}' }
+                dictLst.append(d)
+        with trange(len(dictLst)) as tbar:
             for r in pool.imap_unordered(mainWrap, dictLst):
                 results.append(r)
                 tbar.update()
