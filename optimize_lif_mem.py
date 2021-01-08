@@ -28,11 +28,12 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     minErrFrac = 0.001 #per bin
     expPathMask = 'Lif_data/ucfret_20201210/*.txt'
     mdDataDir = 'Lif_data/MD_Neha_pre2021'
+    #mdDataDir = 'Lif_data/MD_Milana_Lif_ff99sb-disp'
     
     #load MD data
-    rdaModel = np.genfromtxt(mdDataDir+'/545_pdbs_Rda.dat',names=True,delimiter='\t',deletechars="")
-    rmpModel = np.genfromtxt(mdDataDir+'/545_pdbs_Rmp.dat',names=True,delimiter='\t',deletechars="")
-    w0 = np.loadtxt(mdDataDir+'/545_pdbs_MD_weights.dat',delimiter=' ',usecols=[1]) #reference weights
+    rdaModel = np.genfromtxt(mdDataDir+'/RDAMean.dat',names=True,delimiter='\t',deletechars="")
+    rmpModel = np.genfromtxt(mdDataDir+'/Rmp.dat',names=True,delimiter='\t',deletechars="")
+    w0 = np.loadtxt(mdDataDir+'/cluster_weights.dat',delimiter=' ',usecols=[1]) #reference weights
     w0 /= w0.sum()
     wseed = None
     if seed == 'random':
@@ -261,7 +262,7 @@ def gaussHistogram2D(rdaEns, weights, sigma, bin_edges, interp=False):
     #calculate gaussian-smoothed p(Rda).
     cdfInt = lambda x: norm.cdf(x,scale=sigma)
     if interp:
-        #Use interpolated normal distribution to improve performance
+        #Use interpolated normal distribution to improve performance ~2x
         r =  np.linspace(-7.0*sigma, 7.0*sigma, 2001)
         cdfInt = interp1d(r, norm.cdf(r, scale=sigma), kind='linear', fill_value=(0.0,1.0), bounds_error=False, assume_sorted=True)
 
@@ -399,10 +400,10 @@ if __name__ == '__main__':
     else:
         pool = Pool()
         dictLst = []
-        for i in range(len(methods)):
+        for method in methods:
             for cur_seed in ['random', 'reference']:
                 d={'nSteps':nSteps, 'theta0':theta0, 'seed':cur_seed, 
-                'method':methods[i], 'saveDirPath':f'{saveDirPath}_{i}' }
+                'method':method, 'saveDirPath':f'{saveDirPath}_{method}_{cur_seed}' }
                 dictLst.append(d)
         with trange(len(dictLst)) as tbar:
             for r in pool.imap_unordered(mainWrap, dictLst):
