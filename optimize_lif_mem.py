@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import traceback
 import collections
 from functools import partial
 from glob import glob
@@ -26,6 +27,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     rda_max = 200.0
     saveStride = 100
     minErrFrac = 0.001 #per bin
+    #expPathMask = 'Lif_data/prda_20201102_exp/*.txt'
     expPathMask = 'Lif_data/ucfret_20201210/*.txt'
     mdDataDir = 'Lif_data/MD_Neha_pre2021'
     #mdDataDir = 'Lif_data/MD_Milana_Lif_ff99sb-disp'
@@ -49,7 +51,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     #format experimental data
     pairsStr = list(rdaModel.dtype.names[1:])
     rdaEns = rfn.structured_to_unstructured(rdaModel[pairsStr])
-    rdaEns = np.nan_to_num(rdaEns, nan=-1.0)
+    rdaEns = np.nan_to_num(rdaEns, nan=-100.0)
     bin_edges, pExp, errExp = loadExpData(expPathMask, rda_min, rda_max, pairsStr)
     errExp = np.clip(errExp,minErrFrac/errExp.shape[0],None)
        
@@ -80,6 +82,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     if method == "MH":
         minimizeMH(resiTrace, nSteps, wseed)
     elif method[:3] == "BH-":
+        #scipy's basin hopping
         minimizeScipyBH(resiTrace, nSteps, wseed, method[3:])
     else:
         minimizeLmfit(resiTrace, nSteps, wseed, method)
@@ -111,7 +114,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
         pModData = np.column_stack(((edges_full[:-1]+edges_full[1:])*0.5,pModel[:,ip]))
         np.savetxt(saveDirPath+f'/pRda_model_{pair}.dat', pModData, fmt=['%.2f','%.5e'], header='Rda\tp(Rda)',delimiter='\t',comments='')
     
-    plot_energies(saveDirPath+f'/energies_{method}', resiTraj, theta0)
+    plot_energies(saveDirPath+f'/energies.png', resiTraj, theta0)
     gCur = gTraj[0]*2.0
     for i in range(iBest,iBest+1,100):
         if gTraj[i] >= gCur:
@@ -122,7 +125,7 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
         for ip, pair in enumerate(pairsStr):
             pModIni=gaussHistogram2D(rdaEns[:,ip:ip+1], w0, sigma, bin_edges)[:,0]            
             pRmp = np.histogram(np.nan_to_num(rmpModel[pair],nan=-1.0),bins=bin_edges, weights=w)[0]
-            plot_pRda(saveDirPath+f'/{pair}_{i:05}', bin_edges, pModel[:,ip], pExp[:,ip], errExp[:,ip], pModIni, pRmp)
+            plot_pRda(saveDirPath+f'/{pair}_{i:05}.png', bin_edges, pModel[:,ip], pExp[:,ip], errExp[:,ip], pModIni, pRmp)
        
     
     if disableTbar is False:
@@ -147,7 +150,7 @@ def memResi(w, pExp, errExp, rdaEns, sigma, bin_edges, w0, theta):
     resi = residuals(w, pExp, errExp, rdaEns,  sigma, bin_edges)
     #Here sum(resi**2) ~= chi2r, not chi2, therefore normalisation
     resi *= 1.0 / np.sqrt(2.0*resi.size)
-    resi = np.append(resi, [np.sqrt((S+1)*theta), resw])
+    resi = np.append(resi, [np.sqrt((S+1.0)*theta), resw])
     return resi
 
 def minimizeLmfit(residualsFn, nSteps, wseed, method):
@@ -164,6 +167,7 @@ def minimizeLmfit(residualsFn, nSteps, wseed, method):
     return np.array([res.params[name] for name in res.params])
 
 def minimizeScipyBH(residualsFn, nSteps, wseed, minimizer):
+    #Use basin hopping from SciPy
     fG = lambda w: np.square(residualsFn(w)).sum()
     Gseed = fG(wseed)
     itCount = 0
@@ -330,7 +334,7 @@ def plot_pRda(path, rda_edges, model, exp, err, model_initial, pRmp):
     fig.legend(loc='upper center', ncol=4, prop={'size': 8}, bbox_to_anchor=(0.5, 0.06))
     fig.tight_layout()
     fig.subplots_adjust(bottom=0.15)
-    fig.savefig(path+'.png',dpi=300)
+    fig.savefig(path,dpi=300)
     plt.close(fig)
     
 def plot_energies(path, resiTraj, theta):
@@ -351,7 +355,7 @@ def plot_energies(path, resiTraj, theta):
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=3, prop={'size': 8})
     
     fig.tight_layout()
-    fig.savefig(path+'.png',dpi=300)
+    fig.savefig(path,dpi=300)
     plt.close(fig)
     
 def weigths2GTerms(w, w0, pExp, errExp, rdaEns,  sigma, bin_edges):
@@ -372,7 +376,9 @@ def resi2GTerms(resi, theta0):
 def mainWrap(d):
     try:
         return main(**d)
-    except:
+    except Exception as e:
+        print(e)
+        print(traceback.format_exc())
         return -1, -1, -1, -1, -1, -1, d['saveDirPath']
 
 if __name__ == '__main__':
@@ -380,7 +386,7 @@ if __name__ == '__main__':
         print('Usage:  \t./optimize_lif_mem.py <nSteps> <outDir> <theta>\nExample:\t./optimize_lif_mem.py 50000 results 0.15')
         sys.exit()
     
-    serial = True
+    nProcesses = 1
     nSteps=int(sys.argv[1])
     saveDirPath=sys.argv[2]
     theta0=float(sys.argv[3])
@@ -394,16 +400,17 @@ if __name__ == '__main__':
     header = ['gBest', 'iBest', 'chi2r', 'S', 'gGood', 'iGood', 'saveDirPath']
     results = []
     
-    if serial:
+    if nProcesses == 1:
         r = main(nSteps, saveDirPath, theta0, seed, methods[0])
         results.append(r)
     else:
-        pool = Pool()
+        pool = Pool(nProcesses)
+        if not os.path.exists(saveDirPath): os.mkdir(saveDirPath)
         dictLst = []
         for method in methods:
-            for cur_seed in ['random', 'reference']:
+            for cur_seed in [seed, 'random', 'random']:
                 d={'nSteps':nSteps, 'theta0':theta0, 'seed':cur_seed, 
-                'method':method, 'saveDirPath':f'{saveDirPath}_{method}_{cur_seed}' }
+                'method':method, 'saveDirPath':f'{saveDirPath}/{method}_{cur_seed}_{len(dictLst)}' }
                 dictLst.append(d)
         with trange(len(dictLst)) as tbar:
             for r in pool.imap_unordered(mainWrap, dictLst):
@@ -413,7 +420,7 @@ if __name__ == '__main__':
     
     restab=np.core.records.fromrecords(results,formats=[float]*6+['U128'])
     header='\t'.join(header)
-    np.savetxt(f'{saveDirPath}_summary.dat',restab, fmt='%s',delimiter='\t',header=header, comments='')
+    np.savetxt(f'{saveDirPath}/summary.dat', restab, fmt='%s', delimiter='\t', header=header, comments='')
     print(header)
     for r in restab: 
         print(f'{r[0]:.2f}\t{r[1]:.0f}\t{r[2]:.2f}\t{r[3]:.2f}\t{r[4]:.2f}\t{r[5]:.0f}\t{r[6]}')
