@@ -8,7 +8,7 @@ def main(inDir, outPrefix, confThreshold=0.68):
     rda=np.loadtxt(inDir+'/pRapp_density_rda_axis.txt',usecols=[0])
     p=np.loadtxt(inDir+'/pRapp_density.txt')
     rda_max = 2.0*rda[-1] - rda[-2]
-    rda_step = (rda[1] - rda[0])*2.0
+    rda_step = (rda[1] - rda[0])*int(2.0/(rda[1] - rda[0]))
     edges = np.concatenate(([0.], np.arange(30,80,rda_step), [rda_max]))
 
     assert np.allclose(rda[1:]-rda[:-1],rda[1]-rda[0])
@@ -33,9 +33,12 @@ def main(inDir, outPrefix, confThreshold=0.68):
         ymax/=ysum
         y/=ysum
     
+    data_unb = np.column_stack([rda,y,y-ymin, ymax-y])
+    np.savetxt(outPrefix+'_unbinned.txt',data_unb,delimiter='\t', header='Rda\tprda\terr_neg\terr_pos',fmt='%.5f', comments="")
+    
     bin_y, bin_err_neg, bin_err_pos = histogram(rda, y, y-ymin, ymax-y, edges)
-    data=np.column_stack([edges[:-1], edges[1:], bin_y, bin_err_neg, bin_err_pos])
-    np.savetxt(outPrefix+'.txt',data,delimiter='\t',header='Rda_left	Rda_right	prda	err_neg	err_pos',fmt='%.5f', comments="")
+    data_binned=np.column_stack([edges[:-1], edges[1:], bin_y, bin_err_neg, bin_err_pos])
+    np.savetxt(outPrefix+'.txt',data_binned,delimiter='\t',header='Rda_left	Rda_right	prda	err_neg	err_pos',fmt='%.5f', comments="")
 
     fig, ax = plt.subplots()
     heatmap=ax.imshow(p.T, origin='lower', extent=[rda[0],rda[-1],0,1.0/ysum], cmap='hot', aspect='auto')
@@ -63,8 +66,12 @@ def histogram(x, y, err_neg, err_pos, edges):
         mask = (x>=x_left) & (x<x_right)
         in_slice = in_data[mask]
         bin_y[i_bin] = in_slice[:,1].sum()
-        bin_err_neg[i_bin] = np.sqrt(np.square(in_slice[:,2]).sum())
-        bin_err_pos[i_bin] = np.sqrt(np.square(in_slice[:,3]).sum())
+        #since the sub-bins are not independent:
+        bin_err_neg[i_bin] = in_slice[:,2].sum()
+        bin_err_pos[i_bin] = in_slice[:,3].sum()
+        ##these assume independent sub-bins, which is too naive
+        #bin_err_neg[i_bin] = np.sqrt(np.square(in_slice[:,2]).sum()) 
+        #bin_err_pos[i_bin] = np.sqrt(np.square(in_slice[:,3]).sum())
     
     return bin_y, bin_err_neg, bin_err_pos
 
