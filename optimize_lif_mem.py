@@ -49,11 +49,11 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
     assert w0.shape[0] == rdaModel.shape[0]
     
     #format experimental data
-    pairsStr = list(rdaModel.dtype.names[1:])
-    rdaEns = rfn.structured_to_unstructured(rdaModel[pairsStr])
-    rdaEns = np.nan_to_num(rdaEns, nan=-100.0)
+    pairsStr = list(rdaModel.dtype.names[1:]) #creates list of strings, which are FRET pairs, i.e. ['137_215', '137_268',...]. They are taken from the header of 'RDAMean.dat'
+    rdaEns = rfn.structured_to_unstructured(rdaModel[pairsStr]) #appends distances of all FRET pairs into single numpy array of dimension N_clusters x Npairs
+    rdaEns = np.nan_to_num(rdaEns, nan=-100.0) #replaces NaN values, if such exist, with -1, hence no need to clean the data from NaN occurences
     bin_edges, pExp, errExp = loadExpData(expPathMask, rda_min, rda_max, pairsStr)
-    errExp = np.clip(errExp,minErrFrac/errExp.shape[0],None)
+    errExp = np.clip(errExp,minErrFrac/errExp.shape[0],None) #minErrFrac/errExp.shape[0]=total error/total N of bins= error per bin (here we assure that this is the lowest error)
        
     #setup minimazion logging
     resiPart = partial(memResi, pExp=pExp, errExp=errExp, 
@@ -138,13 +138,13 @@ def main(nSteps, saveDirPath, theta0, seed, method='BH-SLSQP'):
 def residuals(weights, pExp, errExp, rdaEns, sigma, bin_edges):
     pModel = gaussHistogram2D(rdaEns, weights, sigma, bin_edges)
     #calculate optimal pair-specific model to experiment scaling factor
-    modScale = (pExp*pModel/np.square(errExp)).sum(axis=0) / (np.square(pModel/errExp).sum(axis=0)+np.finfo(float).eps) 
+    modScale = (pExp*pModel/np.square(errExp)).sum(axis=0) / (np.square(pModel/errExp).sum(axis=0)+np.finfo(float).eps) #scaling factor is obtained via minimization of chi2: d(chi2)/d(modScale)=0 
     modScale = np.atleast_2d(modScale)
     return (pExp - pModel*modScale)/errExp
 
 def memResi(w, pExp, errExp, rdaEns, sigma, bin_edges, w0, theta):   
     #Here 0*log(0)=0, since lim{x*log(x), x->0} = 0
-    S = np.sum(w * np.log(w / w0 + np.finfo(float).eps))
+    S = np.sum(w * np.log(w / w0 + np.finfo(float).eps)) #when calculating S add upper rounding error=  2.220446049250313e-16
     #the wheights should approximately add up to 1.0
     resw = (w.sum() - 1.0) / 0.1 
     resi = residuals(w, pExp, errExp, rdaEns,  sigma, bin_edges)
@@ -280,29 +280,29 @@ def gaussHistogram2D(rdaEns, weights, sigma, bin_edges, interp=False):
     return hist2D
 
 def loadExpData(pExpPathMask, rda_min, rda_max, pairsSorted):
-    pExpPathList = glob(pExpPathMask)
-    numPairs = len(pExpPathList)
-    assert numPairs > 0
+    pExpPathList = glob(pExpPathMask)  #function glob allows usage of Unix matching patterns, e.g. '*.txt'. Creates a list of strings: 'Lif_data/ucfret_20201210/137-251.txt' etc.
+    numPairs = len(pExpPathList) #determines number of loaded files
+    assert numPairs > 0 #checks if you actually read experimental data, by checking if there are more than 0 of read files.
     
-    data = np.genfromtxt(pExpPathList[0],names=True,delimiter='\t',deletechars="")
+    data = np.genfromtxt(pExpPathList[0],names=True,delimiter='\t',deletechars="") #load as structured data only the first file "137-215.txt", because at this moment we just need bins information
     bins_left = data['Rda_left']
     bins_right = data['Rda_right']
-    assert np.all(np.isclose(bins_left[1:],bins_right[:-1]))
-    binStart = np.flatnonzero(bins_left>=rda_min)[0]
-    binEnd = np.flatnonzero(bins_right<=rda_max)[-1]+1
+    assert np.all(np.isclose(bins_left[1:],bins_right[:-1])) #makes sure that you did not skip some bins; you should have continuous binning(i.e. 0-10,10-20... and not 0-10, 20-30)
+    binStart = np.flatnonzero(bins_left>=rda_min)[0] #np.flatnonzero gives the indices of nonzero elements of bins_left array that are >= rda_min. Then take the first element
+    binEnd = np.flatnonzero(bins_right<=rda_max)[-1]+1 #np.flatnonzero gives the indices of nonzero elements of bins_right array that are <= rda_max. Then take the last element's index+1
     numBins = binEnd - binStart
     
     pExp = np.full((numBins, numPairs),-1.0)
     err = np.full((numBins, numPairs),-1.0)
     for pExpPath in pExpPathList:
-        pair = pExpPath.replace('.txt','').split('/')[-1].replace('-','_')
-        assert pair in pairsSorted
-        iP = pairsSorted.index(pair)
+        pair = pExpPath.replace('.txt','').split('/')[-1].replace('-','_') # In a list of strings: 'Lif_data/ucfret_20201210/137-251.txt' remove '.txt', take the last string separated with /, replace - with _ -> '137_251'
+        assert pair in pairsSorted #check if extracted FRET pair from exp. file name exists in the list of the extracted FRET pairs from "RDAMean.dat" headers
+        iP = pairsSorted.index(pair) #finds the index of the given FRET pair in pairsSorted(pairsStr), i.e. finds how the FRET pairs are sorted in the simulation files
         data = np.genfromtxt(pExpPath,names=True,delimiter='\t',deletechars="")
         assert np.all(bins_left == data['Rda_left'])
-        pExp[:,iP] = data['prda'][binStart:binEnd]
+        pExp[:,iP] = data['prda'][binStart:binEnd] #it sorts the pExp in the exact order in which are pRda from simulations (this order is given by FRET pair index iP)
         err[:,iP] = data['prda_error'][binStart:binEnd]
-    err=np.clip(err, np.finfo(float).eps, None)
+    err=np.clip(err, np.finfo(float).eps, None)  #if there are errors lower than "np.finfo(float).eps" they become this value
     assert np.all(pExp>=0.0)
     assert np.all(err>=0.0)
     
@@ -361,7 +361,7 @@ def plot_energies(path, resiTraj, theta):
 def weigths2GTerms(w, w0, pExp, errExp, rdaEns,  sigma, bin_edges):
     chi2r = np.square(residuals(w, pExp, errExp, rdaEns,  sigma, bin_edges)).mean()
     S = np.sum(w*np.log(w/w0+1E-12))
-    resW = (w.sum()-1.0)/0.1
+    resW = (w.sum()-1.0)/0.1 #this term penalizes the deviation of sum of weights from 1; 0.1 is the force constant
     G = chi2r*0.5 + theta0*(S+1.0) + resW**2
     return G, chi2r, S, resW
 
