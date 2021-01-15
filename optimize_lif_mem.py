@@ -27,7 +27,7 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
     sigma = 6.0 #Angstrom
     rda_min = 0.0
     rda_max = 200.0
-    saveStride = 100
+    saveStride = min(int(nSteps/10), 99) + 1
     minErrFrac = 0.0005 # minimal allowed error for a bin
     #expPathMask = 'Lif_data/prda_20201102_exp/*.txt'
     mdDataDir = 'Lif_data/MD_Neha_pre2021'
@@ -68,21 +68,26 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
     fG = lambda resi: np.square(resi).sum()
     
     numResi = resiPart(wseed).size
-    trajLen = nSteps + 2
+    trajLen = int(nSteps / saveStride) + 1
     wTraj = np.zeros((trajLen,wseed.shape[0]))
     resiTraj = np.zeros((trajLen,numResi))
+    gTraj = np.full(trajLen,np.inf)
     disableTbar = len(current_process()._identity)>0
     tbar = trange(nSteps,disable=disableTbar)
     curIt = 0
     def resiTrace(w):
         nonlocal curIt
+        if curIt > nSteps:
+            raise StopIteration("Maximum number of iterations was reached")
         resi = resiPart(w)
-        if curIt >= trajLen:
-            raise StopIteration("Maximum number of iterations was reached") 
-        resiTraj[curIt] = resi
-        wTraj[curIt] = w
+        G = fG(resi)
+        iRound = int(curIt/saveStride)
+        if G < gTraj[iRound]:
+            gTraj[iRound] = G
+            resiTraj[iRound] = resi
+            wTraj[iRound] = w
+            tbar.set_description(f'{method}, G={G:.2f}')
         tbar.update()
-        tbar.set_description(f'{method}, G={fG(resi):.2f}')
         curIt += 1
         return resi
     
@@ -91,7 +96,6 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
     if method == "MH":
         minimizeMH(resiTrace, nSteps, wseed)
     elif method[:3] == "BH-":
-        #scipy's basin hopping
         minimizeScipyBH(resiTrace, nSteps, wseed, method[3:])
     else:
         minimizeLmfit(resiTrace, nSteps, wseed, method)
@@ -99,12 +103,13 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
     run_duration = timedelta(seconds=int(time.monotonic() - start_time))
     tbar.close()
     
-    if curIt<trajLen:
-        wTraj.resize((curIt,wTraj.shape[1]))
-        resiTraj.resize((curIt,resiTraj.shape[1]))
+    gTraj[-1] = np.inf
+    lastIt = np.argmax(gTraj==np.inf)
+    gTraj = gTraj[:lastIt]
+    wTraj = wTraj[:lastIt]
+    resiTraj = resiTraj[:lastIt]
     
     # Find the best & first good solutions
-    gTraj = np.square(resiTraj).sum(axis=1)
     iBest = gTraj.argmin()
     Gmin, chi2r, S, resW = weigths2GTerms(wTraj[iBest], w0, pExp, errExp, rdaEns,  sigma, bin_edges, theta)
     iGood = np.argmax(gTraj<Gmin*1.001)
@@ -117,14 +122,14 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
             "w_tot": wTraj[iBest].sum(),
             "minimizer":method,
             "runtime":str(run_duration),
-            "it_Gmin": iBest,
+            "it_Gmin": iBest*saveStride,
             "G_good": gGood,
-            "it_good": iGood,
+            "it_good": iGood*saveStride,
             "saveDirPath": saveDirPath }
     
     if not os.path.exists(saveDirPath): os.mkdir(saveDirPath)
-    np.savetxt(saveDirPath+'/residuals_traj.dat', resiTraj[::saveStride], fmt='%.6e',delimiter='\t')
-    np.savetxt(saveDirPath+'/weights_traj.dat',wTraj[::saveStride], fmt='%.6e')
+    np.savetxt(saveDirPath+'/residuals_traj.dat', resiTraj, fmt='%.6e',delimiter='\t')
+    np.savetxt(saveDirPath+'/weights_traj.dat',wTraj, fmt='%.6e')
     np.savetxt(saveDirPath+'/weights_final.dat', wTraj[iBest], fmt='%.6e',header=str(resDict))
     
     edges_full = np.linspace(0.0,200.0,201)
@@ -134,9 +139,9 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
         np.savetxt(saveDirPath+f'/pRda_model_{pair}.dat', pModData, 
                    fmt=['%.2f','%.5e'], header='Rda\tp(Rda)',delimiter='\t',comments='')
     
-    plot_energies(saveDirPath+f'/energies.png', resiTraj, theta)
+    plot_energies(saveDirPath+f'/energies.png', resiTraj, theta, saveStride)
     gCur = gTraj[0]*2.0
-    for i in range(iBest,iBest+1,100):
+    for i in range(iBest,iBest+1):
         if gTraj[i] >= gCur:
             continue
         gCur = gTraj[i]
@@ -145,7 +150,7 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
         for ip, pair in enumerate(pairsStr):
             pModIni=gaussHistogram2D(rdaEns[:,ip:ip+1], w0, sigma, bin_edges)[:,0]            
             pRmp = np.histogram(np.nan_to_num(rmpModel[pair],nan=-1.0),bins=bin_edges, weights=w)[0]
-            plot_pRda(saveDirPath+f'/{pair}_{i:05}.png', bin_edges, pModel[:,ip], pExp[:,ip], errExp[:,ip], pModIni, pRmp)
+            plot_pRda(saveDirPath+f'/{pair}_{i*saveStride:05}.png', bin_edges, pModel[:,ip], pExp[:,ip], errExp[:,ip], pModIni, pRmp)
        
     
     if theta>0.0:
@@ -197,7 +202,6 @@ def minimizeScipyBH(residualsFn, nSteps, wseed, minimizer):
         return np.array(res.x)
     except StopIteration as e:
         return None
-    
 
 def minimizeMH(residualsFn, nSteps, wseed):
     kT = 1.0
@@ -368,19 +372,19 @@ def plot_pRda(path, rda_edges, model, exp, err, model_initial, pRmp):
     fig.savefig(path,dpi=300)
     plt.close(fig)
     
-def plot_energies(path, resiTraj, theta):
+def plot_energies(path, resiTraj, theta, saveStride):
     y = np.zeros((resiTraj.shape[0],4))
     for i, resi in enumerate(resiTraj): 
         y[i] = resi2GTerms(resi, theta)
     G, chi2r, S, resW = y.T
     
     fig, ax = plt.subplots()
-    x = np.arange(resiTraj.shape[0])
+    x = np.arange(resiTraj.shape[0])*saveStride
     ax.plot(x, G , 'r-', label='G', linewidth=1)
     ax.plot(x, chi2r , 'g-', label='chi2', linewidth=1)
     ax.plot(x, S, 'b-', label='S', linewidth=1)
     ax.set_ylim(0.0, chi2r[0]*1.1)
-    ax.set_xlim(0, resiTraj.shape[0])
+    ax.set_xlim(0, x[-1])
     ax.set_xlabel('# iteration')
     ax.set_ylabel('G, chi2r, S')
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.12), ncol=3, prop={'size': 8})
@@ -412,7 +416,7 @@ def mainWrap(d):
         print(traceback.format_exc())
         return {"saveDirPath": d["saveDirPath"]}
 
-def dictlist2arr(dicts):    
+def dictlist2arr(dicts):
     dt_tuples = []
     for key, value in dicts[0].items():
         if not isinstance(value, str):
@@ -441,7 +445,7 @@ if __name__ == '__main__':
         seed = sys.argv[4]
 
     methods = ['slsqp', 'BH-SLSQP', 'basinhopping', 'trust-constr', 'cg', 'MH', 'BH-L-BFGS-B',
-               'ampgo',  'dual_annealing', 'least_squares', 'shgo', 'BH-trust-constr']
+               'ampgo',  'dual_annealing', 'least_squares', 'BH-trust-constr']
     # differential_evolution requires several GB of RAM per run
     #methods += ['differential_evolution']
     
