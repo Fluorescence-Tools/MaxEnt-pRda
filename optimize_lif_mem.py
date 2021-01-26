@@ -57,6 +57,7 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
     # Appends distances of all FRET pairs into single numpy array of dimension N_clusters x Npairs
     rdaEns = rfn.structured_to_unstructured(rdaModel[pairsStr])
     # Replaces NaN values, if such exist, with -1, hence no need to clean the data from NaN occurences
+    # if numpy.version.version<1.17 numpy.nan_to_num does not work -> update numpy
     rdaEns = np.nan_to_num(rdaEns, nan=-100.0) 
     bin_edges, pExp, errExp = loadExpData(expPathMask, rda_min, rda_max, pairsStr)
     assert np.all(errExp>=minErrFrac)
