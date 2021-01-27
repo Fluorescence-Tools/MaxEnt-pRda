@@ -296,8 +296,11 @@ def gaussHistogram2D(rdaEns, weights, sigma, bin_edges, interp=False):
     numPairs = rdaEns.shape[1]
     hist2D = np.full((numBins, numPairs),0.0)
     for ip in range(numPairs):
+        #assuming norm. distrib. here calculates x-mu, with x=bin edges from exp.data and mu=conformer/cluster distances
         dr = np.tile(bin_edges,(rdaEns.shape[0],1)) - rdaEns[:,ip:ip+1]
+        #for dr=x-mu calculate cdf assuming normally distributed data with sigma=6
         cdf = normCdf(dr)
+        #pdf is derivative of cdf: calculate "pdf(x)=[cdf(x2)-cdf(x1)]*cluster weight" over all bins, and then for each bin sum over all clusters
         hist2D[:,ip] = ((cdf[:,1:]-cdf[:,:-1])*np.atleast_2d(weights).T).sum(axis=0)
     return hist2D
 
