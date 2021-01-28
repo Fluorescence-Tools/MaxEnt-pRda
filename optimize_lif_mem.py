@@ -162,9 +162,11 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
 def residuals(weights, pExp, errExp, rdaEns, sigma, bin_edges):
     pModel = gaussHistogram2D(rdaEns, weights, sigma, bin_edges)
     # Calculate optimal pair-specific model to experiment scaling factor
-    modScale = (pExp*pModel/np.square(errExp)).sum(axis=0) / (np.square(pModel/errExp).sum(axis=0)+np.finfo(float).eps) #scaling factor is obtained via minimization of chi2: d(chi2)/d(modScale)=0 
+    # scaling factor is obtained via minimization of chi2: d(chi2)/d(modScale)=0
+    # add smallest representable float to denominator to avoid division with 0
+    modScale = (pExp*pModel/np.square(errExp)).sum(axis=0) / (np.square(pModel/errExp).sum(axis=0)+np.finfo(float).eps) 
     modScale = np.atleast_2d(modScale)
-    return (pExp - pModel*modScale)/errExp
+    return (pExp - pModel*modScale)/errExp # =resi of a size [Nbins,Npairs]
 
 def memResi(w, pExp, errExp, rdaEns, sigma, bin_edges, w0, theta):   
     # Here 0*log(0)=0, since lim{x*log(x), x->0} = 0
@@ -175,7 +177,8 @@ def memResi(w, pExp, errExp, rdaEns, sigma, bin_edges, w0, theta):
     resw = (w.sum() - 1.0) / 0.1 
     resi = residuals(w, pExp, errExp, rdaEns,  sigma, bin_edges)
     # Here sum(resi**2) ~= chi2r, not chi2, therefore normalisation
-    resi *= 1.0 / np.sqrt(2.0*resi.size)
+    resi *= 1.0 / np.sqrt(2.0*resi.size) #resi.size=Nbins*Npairs
+    # here sqrt(S+1)*theta because later squares this whole array
     resi = np.append(resi, [np.sqrt((S+1.0)*theta), resw])
     return resi
 
