@@ -77,7 +77,7 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
     tbar = trange(nSteps,disable=disableTbar)
     curIt = 0
     def resiTrace(w):
-        nonlocal curIt
+        nonlocal curIt #nonlocal works only in python3
         if curIt > nSteps:
             raise StopIteration("Maximum number of iterations was reached")
         resi = resiPart(w)
@@ -185,11 +185,13 @@ def memResi(w, pExp, errExp, rdaEns, sigma, bin_edges, w0, theta):
 def minimizeLmfit(residualsFn, nSteps, wseed, method):
     params2np = lambda pars: np.array([pars[name] for name in pars])
     resiLmfit = lambda w: residualsFn(params2np(w))
-
+    #minimizer dictionary containing model parameters to be optimized (here weights)
     par = lmfit.Parameters()
+    ##add all weights to minimizer dictionionary,name them as 'v1,v2,v3..'  and constrain them between 0 and 1
     for i in range(len(wseed)):
         par.add(f'v{i}', wseed[i], min=0.0, max=1.0)
     res = lmfit.minimize(resiLmfit, par, method=method, max_nfev=nSteps)
+    #check if the number of optimized parameters is equal to number of inital parameters
     assert len(res.params) == len(wseed)
     
     return np.array([res.params[name] for name in res.params])
