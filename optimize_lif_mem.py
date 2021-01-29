@@ -77,7 +77,7 @@ def main(nSteps, saveDirPath, theta, seed, method='BH-SLSQP'):
     tbar = trange(nSteps,disable=disableTbar)
     curIt = 0
     def resiTrace(w):
-        nonlocal curIt #nonlocal works only in python3
+        nonlocal curIt #nonlocal works only in python3 and later
         if curIt > nSteps:
             raise StopIteration("Maximum number of iterations was reached")
         resi = resiPart(w)
