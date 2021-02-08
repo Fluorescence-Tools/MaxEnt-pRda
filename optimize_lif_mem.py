@@ -213,12 +213,10 @@ def minimizeScipy(residualsFn, nSteps, wseed, minimizer, forceFakeBounds=True):
         return None
 
 def minimizeMH(residualsFn, nSteps, wseed):
-    kT = 1.0
-    nMoves = 1
-    w_step = 1.1
     nBuf = 100
     nConv = 2000 # rescramble if the solution does not improve nConv iterations
-    convTol = 1E-8
+    convTol = 1E-6
+    nMoves = 2
     
     assert nConv >= nBuf
     
@@ -230,6 +228,8 @@ def minimizeMH(residualsFn, nSteps, wseed):
     gTraj = np.empty(nSteps)
     accBuf = collections.deque(maxlen=nBuf)
     
+    kT = 0.1
+    w_step = 2.0
     # Sample solutions
     w = np.copy(wseed)
     accept_ratio = -1.0
@@ -243,20 +243,13 @@ def minimizeMH(residualsFn, nSteps, wseed):
             iC = int(nBuf/2)
             Gmin_old = gBuf[:iC].min()
             Gmin_new = gBuf[iC:].min()
-            kT = max((Gmin_old-Gmin_new)/nBuf, 1E-12)
-            if  Gmin_old <= Gmin_new or accept_ratio < 0.2:
-                #reduce the step size
-                nMoves = max(nMoves-1,1)
-                w_step = (1.01+w_step*3.0)/4.0
-            elif accept_ratio > 0.5:
-                #increase the step size
-                nMoves += 1
-                w_step = (3.0+w_step*3.0)/4.0
+            kT = max((Gmin_old-Gmin_new)/iC, np.finfo(float).eps)
+            w_step = max(w_step*np.sqrt(0.7 + accept_ratio), 1.001)
         
         # Generate new weights
         w_old = np.copy(w)
-        for iRS in range(nMoves):
-            w[rng.integers(0,w.shape[0])] *= rng.uniform(1.0/w_step,w_step)
+        w[rng.integers(0,w.shape[0],nMoves)] *= rng.uniform(1.0/w_step,w_step,nMoves)
+        w/=w.sum()
         
         accept = False
         # Rescramble if the solution does not improve
@@ -264,7 +257,7 @@ def minimizeMH(residualsFn, nSteps, wseed):
             iC = int(i-nConv/2)
             g_old = gTraj[i-nConv+1:iC].min()
             g_new = gTraj[iC:i].min()
-            if g_old/g_new < (1.0+convTol)**(nConv*0.5):
+            if g_old/g_new < 1.0+convTol:
                 w = rng.uniform(0, 1, w.shape[0])
                 w /= w.sum()
                 Gprev = np.inf
@@ -289,7 +282,7 @@ def minimizeMH(residualsFn, nSteps, wseed):
         else:
             w = w_old
             accBuf.append(0)
-        
+    
     return wTraj[:iAcc], resiTraj[:iAcc]    
 
 class distHist2D(object):
@@ -479,7 +472,7 @@ if __name__ == '__main__':
     
     results = []
     if nProcesses == 1:
-        d = main(nSteps, saveDirPath, thetaList[0], seed, methods[-1])
+        d = main(nSteps, saveDirPath, thetaList[0], seed, methods[0])
         results.append(d)
     else:
         pool = Pool(nProcesses)
