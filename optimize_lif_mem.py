@@ -18,7 +18,6 @@ from scipy.interpolate import interp1d
 from scipy.special import erf
 from scipy.optimize import basinhopping, minimize
 import matplotlib.pyplot as plt
-import lmfit
 from tqdm import trange, tqdm
 #np.seterr(all='raise')
 
@@ -184,21 +183,6 @@ def memResi(w, pExp, errExp, rmp2pR, w0, theta):
     # here sqrt(S+1)*theta because later squares this whole array
     resi = np.append(resi, [np.sqrt((S+1.0)*theta), resw])
     return resi
-
-def minimizeLmfit(residualsFn, nSteps, wseed, method):
-    params2np = lambda pars: np.array([pars[name] for name in pars])
-    resiLmfit = lambda w: residualsFn(params2np(w))
-    #minimizer dictionary containing model parameters to be optimized (here weights)
-    #add all weights to minimizer dictionionary,name them as 'v1,v2,v3..'  and constrain them between 0 and 1
-    pars = lmfit.Parameters()
-    tups = [(f'v{i}', w, True, 0.0, 1.0) for i,w in enumerate(wseed) ]
-    pars.add_many(*tups)
-    
-    res = lmfit.minimize(resiLmfit, pars, method=method, max_nfev=nSteps)
-    #check if the number of optimized parameters is equal to number of inital parameters
-    assert len(res.params) == len(wseed)
-    
-    return np.array([res.params[name] for name in res.params])
 
 def minimizeScipy(residualsFn, nSteps, wseed, minimizer, forceFakeBounds=True):
     """ Minimize using basin hopping from SciPy """
@@ -486,13 +470,12 @@ if __name__ == '__main__':
     if len(sys.argv) > 4:
         seed = sys.argv[4]
 
-    methods = ['BFGS', 'L-BFGS-B', 'trust-constr',  'CG', 'Powell', 'SLSQP', 'MH']
-    # These methods work the best: 'BFGS', 'L-BFGS-B', 'trust-constr',  'CG'
-    # Powell takes more iterations to converge
+    methods = ['MH', 'L-BFGS-B', 'BFGS', 'trust-constr', 'CG', 'SLSQP', 'Powell']
+    # These methods converge the fastest: 'MH', 'L-BFGS-B', 'BFGS'
+    # 'trust-constr' and 'CG' are OK
     # 'SLSQP' optimizes very well, but each iteration takes more time if the ensemble is large
+    # Powell takes more iterations to converge
     # These require a jacobian: 'Newton-CG', 'dogleg', 'trust-ncg','trust-exact', 'trust-krylov'
-    lmfit_methods = ['slsqp', 'basinhopping', 'trust-constr', 'cg', 'least_squares']
-    methods += ["Lmfit_"+m for m in lmfit_methods]
     
     results = []
     if nProcesses == 1:
