@@ -23,10 +23,8 @@ from tqdm import trange, tqdm
 
 def main(nSteps, saveDirPath, theta, seed, method):
     # Input parameters:
-    #expPathMask = 'Lif_data/ucfret_20201210/*.txt'
-    #mdDataDir = 'Lif_data/MD_Milana_Lif_ff99sb-disp'
-    expPathMask = 'Lif_data/prda_20201102_exp/*.txt'
-    mdDataDir = 'Lif_data/MD_Neha_pre2021'
+    expPathMask = 'Lif_data/ucfret_20201210/*.txt'
+    mdDataDir = 'Lif_data/MD_Milana_Lif_ff99sb-disp'
     sigma = np.sqrt(2.0*6.0**2) #Angstrom
     rda_min = 0.0
     rda_max = 200.0
