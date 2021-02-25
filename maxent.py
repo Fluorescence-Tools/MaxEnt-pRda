@@ -36,8 +36,8 @@ class MinimizerSettings(NamedTuple):
 def runMEM(
     savePath: str,
     expPattern: str,
-    weightsPath: str,
-    rmpPath: str,
+    w0: np.ndarray,
+    rmps: np.ndarray,
     seed: str,
     theta: float,
     sigma: float,
@@ -47,18 +47,16 @@ def runMEM(
     rda_max = np.inf
     saveStride = min(int(minParams.nSteps / 100) + 1, 100)
 
-    rmpModel = loadRmps(rmpPath)
-    w0 = loadWeights(weightsPath)  # reference weights
     if seed == "reference":
         wseed = np.copy(w0)
     elif seed == "random":
         wseed = randomWeights(w0.shape[0])
     else:
         wseed = loadWeights(seed)
-    assert w0.shape[0] == rmpModel.shape[0] == wseed.shape[0]
-    bin_edges, pExp, errExp = loadExpData(expPattern, rda_min, rda_max, rmpModel.dtype.names)
+    assert w0.shape[0] == rmps.shape[0] == wseed.shape[0]
+    bin_edges, pExp, errExp = loadExpData(expPattern, rda_min, rda_max, rmps.dtype.names)
 
-    rmp2pR = distHist2D(rmpModel, sigma, bin_edges)
+    rmp2pR = distHist2D(rmps, sigma, bin_edges)
     energyFn = partial(memEnergy, pExp=pExp, errExp=errExp, rmp2pR=rmp2pR, w0=w0, theta=theta, jac=minParams.jac)
     gTraj, wTraj = minimize(energyFn, wseed, minParams, saveStride)
 
@@ -72,8 +70,8 @@ def runMEM(
     # Save results
     resDict = {
         "G_min": Gmin,
-        "chi2r": chi2r,
         "S": S,
+        "chi2r": chi2r,
         "w_tot": wBest.sum(),
         "theta": theta,
         "seed": seed,
@@ -90,21 +88,15 @@ def runMEM(
     weights_final = np.column_stack((np.arange(wseed.shape[0]), wBest))
     np.savetxt(savePath + "/weights_final.dat", weights_final, fmt="%d %.6e", header=str(resDict))
 
-    save_pRda(savePath + f"/pRda_reweighted.dat", rmpModel, wBest, sigma)
+    save_pRda(savePath + f"/pRda_reweighted.dat", rmps, wBest, sigma)
     save_energies(savePath + f"/energies", wTraj, gTraj, w0, theta, saveStride)
     # save p(Rda) plots
-    gCur = np.inf
-    for i in range(iBest, iBest + 1):
-        if gTraj[i] >= gCur:
-            continue
-        gCur = gTraj[i]
-        w = wTraj[i]
-        pModel = rmp2pR(w)
-        pModIni = rmp2pR(w0)
-        for ip, pair in enumerate(rmpModel.dtype.names):
-            pRmp = np.histogram(rmpModel[pair], bins=bin_edges, weights=w)[0]
-            path = savePath + f"/{pair}_{i*saveStride:05}.png"
-            plot_pRda(path, bin_edges, pModel[:, ip], pExp[:, ip], errExp[:, ip], pModIni[:, ip], pRmp)
+    pModIni = rmp2pR(w0)
+    pModel = rmp2pR(wBest)
+    for ip, pair in enumerate(rmps.dtype.names):
+        pRmp = np.histogram(rmps[pair], bins=bin_edges, weights=wBest)[0]
+        path = savePath + f"/{pair}.png"
+        plot_pRda(path, bin_edges, pModel[:, ip], pExp[:, ip], errExp[:, ip], pModIni[:, ip], pRmp)
 
     return resDict
 
@@ -373,7 +365,12 @@ def loadRmps(rmpPath):
     pairsStr = list(rmpModel.dtype.names[1:])
     # Appends distances of all FRET pairs into single numpy array of dimension N_clusters x Npairs
     rmpArr = rfn.structured_to_unstructured(rmpModel[pairsStr])
-    assert np.count_nonzero(np.isnan(rmpArr), axis=0).max() < rmpArr.shape[0] * 0.01
+    nanFracs = np.count_nonzero(np.isnan(rmpArr), axis=0) / rmpArr.shape[0]
+    if nanFracs.max() >  0.01:
+        iBad = nanFracs.argmax()
+        nanPerc = nanFracs[iBad]*100.0
+        badCol = pairsStr[iBad]
+        print(f'Warning! File {rmpPath} contains {nanPerc:.1f}% of "NaN" entries in {badCol} column!')
     # Replaces NaN values, if such exist, with -100, hence no need to additionally clean the data from NaN occurences
     rmpArr = np.nan_to_num(rmpArr, nan=-100.0)
     dt = np.dtype(rmpModel.dtype.descr[1:])
@@ -494,6 +491,20 @@ def save_energies(path, wTraj, gTraj, w0, theta, saveStride):
     fig.savefig(path + ".png", dpi=300)
     plt.close(fig)
 
+def plot_pRdaTraj(savePrefix, gTraj, wTraj, rmp2pR, rmps, bin_edges, pExp, errExp):
+    #usefull for debugging
+    gCur = np.inf
+    pModIni = rmp2pR(w0)
+    for i in range(gTraj.shape[0]):
+        if gTraj[i] >= gCur:
+            continue
+        gCur = gTraj[i]
+        w = wTraj[i]
+        pModel = rmp2pR(w)
+        for ip, pair in enumerate(rmps.dtype.names):
+            pRmp = np.histogram(rmps[pair], bins=bin_edges, weights=w)[0]
+            path = savePrefix + f"/{pair}_{i:05}.png"
+            plot_pRda(path, bin_edges, pModel[:, ip], pExp[:, ip], errExp[:, ip], pModIni[:, ip], pRmp)
 
 def dictlist2arr(dicts):
     dt_tuples = []
@@ -558,8 +569,8 @@ def main():
 
     memargs = {
         "expPattern": args.exp,
-        "weightsPath": args.weights,
-        "rmpPath": args.rmps,
+        "w0": loadWeights(args.weights),
+        "rmps": loadRmps(args.rmps),
         "sigma": args.sigma,
     }
 
@@ -589,7 +600,7 @@ def main():
         kwargsLst[0]["savePath"] = args.out
     if not os.path.exists(args.out):
         os.mkdir(args.out)
-
+    
     results = []
     if args.threads == 1:
         for d in kwargsLst:
