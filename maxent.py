@@ -96,8 +96,11 @@ def runMEM(
     for ip, pair in enumerate(rmps.dtype.names):
         pRmp = np.histogram(rmps[pair], bins=bin_edges, weights=wBest)[0]
         path = savePath + f"/{pair}.png"
-        plot_pRda(path, bin_edges, pModel[:, ip], pExp[:, ip], errExp[:, ip], pModIni[:, ip], pRmp)
-
+        chi2r_pair = np.square((pModel[:, ip] - pExp[:, ip]) / errExp[:, ip]).mean()
+        tpair = pair.replace('_','\_')
+        comm = f'pair: {pair}\n$\chi^2_{{r,{tpair}}}$={chi2r_pair:.1f}\n$\chi^2_{{r,tot}}$={chi2r:.1f}\nS={S:.1f}'
+        plot_pRda(path, bin_edges, pModel[:, ip], pExp[:, ip], errExp[:, ip], pModIni[:, ip], pRmp, comm)
+    
     return resDict
 
 
@@ -429,7 +432,7 @@ def loadExpData(pExpPathMask, rda_min, rda_max, pairsSorted):
     return edges, pExp, err
 
 
-def plot_pRda(path, rda_edges, model, exp, err, model_initial, pRmp):
+def plot_pRda(path, rda_edges, model, exp, err, model_initial, pRmp, comm):
     rda = (rda_edges[:-1] + rda_edges[1:]) * 0.5
     bin_width = rda_edges[1:] - rda_edges[:-1]
 
@@ -440,20 +443,41 @@ def plot_pRda(path, rda_edges, model, exp, err, model_initial, pRmp):
 
     axR = ax.twinx()
     axR.plot(rda, pRmp / bin_width, "go--", label="p(Rmp), MD+reweigting", markersize=2, linewidth=1)
-    axR.set_ylabel("p(Rmp) per A / A^-1", color="g")
+    axR.set_ylabel(r'$p(R_{MP})$ per $\AA$ / $\AA^{-1}$', color="g")
     axR.set_ylim(0.0, None)
 
     ax.set_ylim(0.0, None)
-    ax.set_xlabel("Rapp / A")
-    ax.set_ylabel("p(Rda) per A / A^-1")
-    chi2r = np.square((model - exp) / err).mean()
-    ax.set_title("FRET pair: " + path.split("/")[-1] + f", chi2r = {chi2r:.1f}")
+    ax.set_xlabel(r'$R_{app}$ / $\AA$')
+    ax.set_ylabel(r'$p(R_{DA})$ per $\AA$ / $\AA^{-1}$')
+    ax.text(0.77,0.97, comm, transform=ax.transAxes, verticalalignment='top')
     fig.legend(loc="upper center", ncol=4, prop={"size": 8}, bbox_to_anchor=(0.5, 0.06))
     fig.tight_layout()
     fig.subplots_adjust(bottom=0.15)
     fig.savefig(path, dpi=300)
     plt.close(fig)
 
+
+def plot_pRdaTraj(savePrefix, gTraj, wTraj, w0, theta, rmp2pR, rmps, bin_edges, pExp, errExp):
+    #usefull for debugging
+    gCur = np.inf
+    pModIni = rmp2pR(w0)
+    for i in range(gTraj.shape[0]):
+        if gTraj[i] >= gCur:
+            continue
+        gCur = gTraj[i]
+        w = wTraj[i]
+        pModel = rmp2pR(w)
+        _, chi2r, S, _ = energyTerms(w, w0, pExp, errExp, rmp2pR(w), theta)
+        for ip, pair in enumerate(rmps.dtype.names):
+            pRmp = np.histogram(rmps[pair], bins=bin_edges, weights=w)[0]
+            path = savePrefix + f"/{pair}_{i:05}.png"
+            tpair = pair.replace('_','\_')
+            chi2r_pair = np.square((pModel[:, ip] - pExp[:, ip]) / errExp[:, ip]).mean()
+            comm = '\n'.join([f'$\chi^2_{{r,{tpair}}}={chi2r_pair:.1f}$',
+                          f'$\chi^2_{{r,tot}}={chi2r:.1f}$',
+                          f'$S={S:.1f}$'])
+            plot_pRda(path, bin_edges, pModel[:, ip], pExp[:, ip], errExp[:, ip], pModIni[:, ip], pRmp, comm)
+            
 
 def save_pRda(savePath, rmpModel, weights, sigma):
     edges_full = np.linspace(0.0, 200.0, 201)
@@ -491,20 +515,6 @@ def save_energies(path, wTraj, gTraj, w0, theta, saveStride):
     fig.savefig(path + ".png", dpi=300)
     plt.close(fig)
 
-def plot_pRdaTraj(savePrefix, gTraj, wTraj, rmp2pR, rmps, bin_edges, pExp, errExp):
-    #usefull for debugging
-    gCur = np.inf
-    pModIni = rmp2pR(w0)
-    for i in range(gTraj.shape[0]):
-        if gTraj[i] >= gCur:
-            continue
-        gCur = gTraj[i]
-        w = wTraj[i]
-        pModel = rmp2pR(w)
-        for ip, pair in enumerate(rmps.dtype.names):
-            pRmp = np.histogram(rmps[pair], bins=bin_edges, weights=w)[0]
-            path = savePrefix + f"/{pair}_{i:05}.png"
-            plot_pRda(path, bin_edges, pModel[:, ip], pExp[:, ip], errExp[:, ip], pModIni[:, ip], pRmp)
 
 def dictlist2arr(dicts):
     dt_tuples = []
