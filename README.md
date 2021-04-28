@@ -17,7 +17,7 @@ Last argument (`0.31`) is `θ`. `θ` is the tuning parameter that allows to chos
 An example of results is available at `example_Lif/result_ff99sb-disp` directory.
 The results include the [optimized cluster weights](example_Lif/result_ff99sb-disp/weights_final.dat), [optimized inter-dye distance distributions](example_Lif/result_ff99sb-disp/pRda_reweighted.dat), and corresponding plots for each FRET pair.
 
-![inter-dye distance distributions before and after MEM optimization](example_Lif/result_ff99sb-disp/215_296_00104.png)
+![inter-dye distance distributions before and after MEM optimization](example_Lif/result_ff99sb-disp/215_296.png)
 
 
 More information about the Maximum Entropy Method in the context of conformational ensembles can be found in the following [publication](https://doi.org/10.1007/978-1-4939-9608-7_14):

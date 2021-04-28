@@ -1,2 +1,2 @@
-G_min	chi2r	S	w_tot	theta	seed	it_Gmin	G_good	it_good	is_uncoverged	savePath	nSteps	minimizer	jac	fakeBounds	timeout
-2.039	2.064	2.990	0.972	0.310	reference	104	2.041	40	False	Lif_data/MD_Milana_Lif_ff99sb-disp/result	300	L-BFGS-B	True	True	inf
+G_min	S	chi2r	w_tot	theta	seed	it_Gmin	G_good	it_good	is_uncoverged	savePath	nSteps	minimizer	jac	fakeBounds	timeout
+2.039	2.978	2.072	0.972	0.310	reference	100	2.040	44	False	result_ff99sb-disp	300	L-BFGS-B	True	True	inf

@@ -437,7 +437,9 @@ def plot_pRda(path, rda_edges, model, exp, err, model_initial, pRmp, comm):
     bin_width = rda_edges[1:] - rda_edges[:-1]
 
     fig, ax = plt.subplots()
-    ax.errorbar(rda, exp / bin_width, yerr=err / bin_width, color="black", label="experiment", fmt="o", markersize=2, elinewidth=1.0)
+    ax.plot(rda, exp / bin_width, color="black", label="experiment", markersize=2, linewidth=1)
+    ax.fill_between(rda, (exp-err)/bin_width, (exp+err)/bin_width, edgecolor='none', facecolor='black', alpha=0.2)
+    
     ax.plot(rda, model / bin_width, "bo--", label="MD+weights", markersize=2, linewidth=1)
     ax.plot(rda, model_initial / bin_width, "ro--", label="MD initial", markersize=2, linewidth=1)
 
