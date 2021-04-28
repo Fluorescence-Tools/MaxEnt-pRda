@@ -624,6 +624,7 @@ def main():
             tbar.update()
 
     restab = dictlist2arr(results)
+    restab = restab[np.argsort(restab['S'])]
     header = "\t".join(restab.dtype.names)
     fmtMap = {np.int32: "%d", np.float64: "%.3f"}
     fmt = [fmtMap.get(np.dtype(t).type, "%s") for n, t in restab.dtype.descr]
